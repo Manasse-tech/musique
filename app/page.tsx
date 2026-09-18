@@ -24,6 +24,7 @@ export default function Melodix() {
   const [query, setQuery] = useState("")
   const [section, setSection] = useState<"home" | "library" | "videos" | "favorites" | "settings">("home")
   const [favorites, setFavorites] = useState<string[]>([])
+  const [sort, setSort] = useState<"recent" | "name" | "type">("recent")
   const [toast, setToast] = useState("")
   const audioRef = useRef<HTMLAudioElement>(null)
   const videoRef = useRef<HTMLVideoElement>(null)
@@ -51,7 +52,10 @@ export default function Melodix() {
     const next = favorites.includes(item.id) ? favorites.filter((id) => id !== item.id) : [...favorites, item.id]
     setFavorites(next); localStorage.setItem("melodix-favorites", JSON.stringify(next)); notify(next.includes(item.id) ? "Ajouté aux favoris" : "Retiré des favoris")
   }
-  const filtered = useMemo(() => items.filter((item) => item.name.toLowerCase().includes(query.toLowerCase())), [items, query])
+  const filtered = useMemo(() => {
+    const result = items.filter((item) => item.name.toLowerCase().includes(query.toLowerCase()))
+    return result.sort((a, b) => sort === "name" ? a.name.localeCompare(b.name) : sort === "type" ? a.kind.localeCompare(b.kind) || a.name.localeCompare(b.name) : b.addedAt - a.addedAt)
+  }, [items, query, sort])
   const audio = filtered.filter((item) => item.kind === "audio")
   const videos = filtered.filter((item) => item.kind === "video")
   const shown = section === "videos" ? videos : section === "favorites" ? filtered.filter((item) => favorites.includes(item.id)) : section === "library" ? filtered : audio
@@ -67,7 +71,7 @@ export default function Melodix() {
       <div className="sidebar-foot">100% gratuit<br /><span>Vos fichiers restent sur cet appareil.</span></div>
     </aside>
     <main className="main-content">
-      <header className="topbar"><div className="search-box"><span>⌕</span><input aria-label="Rechercher dans la bibliothèque" placeholder="Rechercher musique, vidéo..." value={query} onChange={(event) => setQuery(event.target.value)} /></div><a href="/auth/login" className="profile-chip">Compte</a></header>
+      <header className="topbar"><div className="search-box"><span>⌕</span><input aria-label="Rechercher dans la bibliothèque" placeholder="Rechercher musique, vidéo..." value={query} onChange={(event) => setQuery(event.target.value)} /></div><label className="sort-control">Trier<select value={sort} onChange={(event) => setSort(event.target.value as typeof sort)}><option value="recent">Récents</option><option value="name">Nom</option><option value="type">Type</option></select></label><a href="/auth/login" className="profile-chip">Compte</a></header>
       {section === "settings" ? <Settings /> : section === "home" ? <Home audio={audio} videos={videos} play={play} importFiles={importFiles} /> : <MediaSection section={section} items={shown} play={play} favorites={favorites} toggleFavorite={toggleFavorite} />}
     </main>
     {active && <Player item={active} playing={playing} setPlaying={setPlaying} audioRef={audioRef} videoRef={videoRef} onClose={() => { setPlaying(false); setActive(null) }} />}
@@ -81,7 +85,7 @@ function Home({ audio, videos, play, importFiles }: { audio: MediaItem[]; videos
 
 function MediaSection({ section, items, play, favorites, toggleFavorite }: { section: string; items: MediaItem[]; play: (item: MediaItem) => void; favorites: string[]; toggleFavorite: (item: MediaItem) => void }) {
   const title = section === "videos" ? "Vidéos" : section === "favorites" ? "Favoris" : "Ma bibliothèque"
-  return <div className="content-wrap"><div className="page-header"><div><p className="eyebrow">BIBLIOTHÈQUE</p><h1>{title}</h1><p className="muted">{items.length} élément{items.length > 1 ? "s" : ""} disponible{items.length > 1 ? "s" : ""} sur cet appareil.</p></div></div>{items.length ? <div className="media-grid">{items.map((item) => <MediaCard key={item.id} item={item} play={play} favorite={favorites.includes(item.id)} onFavorite={toggleFavorite} />)}</div> : <Empty title="Rien à afficher" text="Importez un fichier audio ou vidéo depuis le bouton à gauche." />}</div>
+  return <div className={`content-wrap ${section === "videos" ? "video-library" : ""}`}><div className="page-header"><div><p className="eyebrow">{section === "videos" ? "LECTEUR VIDÉO LOCAL" : "BIBLIOTHÈQUE"}</p><h1>{title}</h1><p className="muted">{items.length} élément{items.length > 1 ? "s" : ""} disponible{items.length > 1 ? "s" : ""} sur cet appareil.</p></div></div>{section === "videos" && items.length > 0 && <div className="video-guidance"><span>▶</span><div><strong>Votre salle vidéo</strong><p>Lecture locale avec plein écran, volume, vitesse et reprise là où vous vous êtes arrêté.</p></div></div>}{items.length ? <div className="media-grid">{items.map((item) => <MediaCard key={item.id} item={item} play={play} favorite={favorites.includes(item.id)} onFavorite={toggleFavorite} />)}</div> : <Empty title="Rien à afficher" text="Importez un fichier audio ou vidéo depuis le bouton à gauche." />}</div>
 }
 
 function MediaCard({ item, play, favorite, onFavorite }: { item: MediaItem; play: (item: MediaItem) => void; favorite?: boolean; onFavorite?: (item: MediaItem) => void }) { return <article className={`media-card ${item.kind}`}><button className="artwork" onClick={() => play(item)} aria-label={`Lire ${item.name}`}><span>{item.kind === "video" ? "▶" : "♫"}</span></button><div className="media-info"><button onClick={() => play(item)}><strong>{item.name}</strong><small>{item.kind === "video" ? "Vidéo locale" : "Audio local"} · {formatBytes(item.size)}</small></button>{onFavorite && <button className={`heart ${favorite ? "liked" : ""}`} onClick={() => onFavorite(item)} aria-label="Ajouter aux favoris">♥</button>}</div></article> }
