@@ -1,6 +1,7 @@
 "use client"
 
 import { type ChangeEvent, type RefObject, useEffect, useMemo, useRef, useState } from "react"
+import { listStoredMedia, saveStoredMedia, toMediaUrl } from "@/lib/media-db"
 
 type MediaItem = { id: string; name: string; url: string; kind: "audio" | "video"; size: number; addedAt: number }
 
@@ -33,21 +34,29 @@ export default function Melodix() {
   const videoRef = useRef<HTMLVideoElement>(null)
 
   useEffect(() => {
-    const saved = localStorage.getItem("melodix-library")
+    let cancelled = false
+    void listStoredMedia().then((stored) => {
+      if (cancelled) return
+      setItems(stored.sort((a, b) => b.addedAt - a.addedAt).map(({ blob, type: _type, ...item }) => ({ ...item, url: toMediaUrl(blob) })))
+    }).catch(() => notify("Impossible de charger la bibliothèque locale"))
     const savedFavs = localStorage.getItem("melodix-favorites")
-    if (saved) setItems(JSON.parse(saved))
     if (savedFavs) setFavorites(JSON.parse(savedFavs))
+    return () => { cancelled = true }
   }, [])
 
-  useEffect(() => {
-    localStorage.setItem("melodix-library", JSON.stringify(items.filter((item) => item.url)))
+  useEffect(() => () => {
+    items.forEach((item) => { if (item.url.startsWith("blob:")) URL.revokeObjectURL(item.url) })
   }, [items])
 
   const notify = (message: string) => { setToast(message); window.setTimeout(() => setToast(""), 2200) }
   const importFiles = (event: ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(event.target.files ?? []).filter((file) => file.type.startsWith("audio/") || file.type.startsWith("video/"))
-    const imported = files.map((file) => ({ id: `${file.name}-${file.lastModified}`, name: file.name.replace(/\.[^/.]+$/, ""), url: URL.createObjectURL(file), kind: file.type.startsWith("video/") ? "video" as const : "audio" as const, size: file.size, addedAt: Date.now() }))
-    if (imported.length) { setItems((current) => [...imported, ...current.filter((item) => item.url)]); notify(`${imported.length} média${imported.length > 1 ? "s" : ""} importé${imported.length > 1 ? "s" : ""}`) }
+    const imported = files.map((file, index) => ({ id: `${file.name}-${file.lastModified}-${file.size}-${index}`, name: file.name.replace(/\.[^/.]+$/, ""), url: toMediaUrl(file), kind: file.type.startsWith("video/") ? "video" as const : "audio" as const, size: file.size, addedAt: Date.now() + index }))
+    if (imported.length) {
+      void saveStoredMedia(imported.map(({ url: _url, ...item }) => ({ ...item, type: files.find((file) => file.name.replace(/\.[^/.]+$/, "") === item.name)?.type ?? "application/octet-stream", blob: files.find((file) => file.name.replace(/\.[^/.]+$/, "") === item.name) ?? new Blob() }))).catch(() => notify("La sauvegarde locale a échoué"))
+      setItems((current) => [...imported, ...current.filter((item) => item.url)])
+      notify(`${imported.length} média${imported.length > 1 ? "s" : ""} importé${imported.length > 1 ? "s" : ""}`)
+    }
     event.target.value = ""
   }
   const play = (item: MediaItem) => { setActive(item); setPlaying(true); notify(`Lecture : ${item.name}`) }
