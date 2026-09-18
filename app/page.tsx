@@ -1,6 +1,7 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
+import { createClient } from "@/lib/supabase/client"
 
 type Track = { title: string; artist: string; album: string; duration: string; tone: string; genre: string }
 type View = "Home" | "Discover" | "Radio" | "Library" | "Videos" | "Liked songs" | "Downloads" | "Settings"
@@ -25,9 +26,39 @@ export default function Home() {
   const [toast, setToast] = useState("")
   const [highQuality, setHighQuality] = useState(true)
   const [autoplay, setAutoplay] = useState(true)
+  const [userId, setUserId] = useState<string | null>(null)
+  const supabase = useMemo(() => process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ? createClient() : null, [])
+
+  useEffect(() => {
+    let active = true
+    if (!supabase) return () => { active = false }
+    supabase.auth.getUser().then(({ data }) => { if (active) setUserId(data.user?.id ?? null) })
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => setUserId(session?.user?.id ?? null))
+    return () => { active = false; listener.subscription.unsubscribe() }
+  }, [supabase])
+
+  useEffect(() => {
+    if (!userId) return
+    if (!supabase) return
+    supabase.from("user_likes").select("track_key").eq("user_id", userId).then(({ data }) => setLiked(Boolean(data?.some((row) => row.track_key === current.title))))
+  }, [current.title, supabase, userId])
 
   const filteredTracks = useMemo(() => tracks.filter((track) => `${track.title} ${track.artist} ${track.album} ${track.genre}`.toLowerCase().includes(query.toLowerCase())), [query])
-  const selectTrack = (track: Track) => { setCurrent(track); setPlaying(true); setToast(`Playing ${track.title}`); window.setTimeout(() => setToast(""), 1800) }
+  const selectTrack = async (track: Track) => {
+    setCurrent(track)
+    setPlaying(true)
+    setToast(`Playing ${track.title}`)
+    window.setTimeout(() => setToast(""), 1800)
+    if (userId && supabase) await supabase.from("listening_history").insert({ user_id: userId, track_key: track.title })
+  }
+  const toggleLike = async () => {
+    const nextLiked = !liked
+    setLiked(nextLiked)
+    setToast(nextLiked ? "Added to liked songs" : "Removed from liked songs")
+    if (!userId || !supabase) return
+    if (nextLiked) await supabase.from("user_likes").upsert({ user_id: userId, track_key: current.title })
+    else await supabase.from("user_likes").delete().eq("user_id", userId).eq("track_key", current.title)
+  }
   const navigate = (view: View) => { setActiveNav(view); setShowQueue(false) }
 
   return <main className="app-shell">
@@ -51,7 +82,7 @@ export default function Home() {
         {activeNav === "Settings" && <Settings highQuality={highQuality} autoplay={autoplay} setHighQuality={setHighQuality} setAutoplay={setAutoplay} />}
       </div>
     </section>
-    <Player track={current} playing={playing} liked={liked} onPlay={() => setPlaying(!playing)} onLike={() => { setLiked(!liked); setToast(liked ? "Removed from liked songs" : "Added to liked songs") }} onQueue={() => setShowQueue(!showQueue)} />
+    <Player track={current} playing={playing} liked={liked} onPlay={() => setPlaying(!playing)} onLike={toggleLike} onQueue={() => setShowQueue(!showQueue)} />
     {showQueue && <aside className="queue-panel"><div className="queue-head"><div><p className="eyebrow">UP NEXT</p><h2>Queue</h2></div><button onClick={() => setShowQueue(false)} aria-label="Close queue">×</button></div>{tracks.slice(1, 5).map((track) => <button className="queue-row" key={track.title} onClick={() => selectTrack(track)}><span className={`cover small ${track.tone}`}>{track.title[0]}</span><span><strong>{track.title}</strong><small>{track.artist}</small></span></button>)}</aside>}
     <div className="mobile-nav">{navItems.slice(0, 4).map((item, index) => <button key={item} className={activeNav === item ? "active" : ""} onClick={() => navigate(item)}><span>{["⌂", "✦", "▤", "▣"][index]}</span>{item}</button>)}</div>
     {toast && <div className="toast" role="status">{toast}</div>}
