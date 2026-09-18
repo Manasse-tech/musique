@@ -6,7 +6,7 @@ import { listStoredMedia, saveStoredMedia, toMediaUrl } from "@/lib/media-db"
 type MediaItem = { id: string; name: string; url: string; kind: "audio" | "video"; size: number; addedAt: number }
 
 const starter: MediaItem[] = [
-  { id: "demo-1", name: "Your local library is ready", url: "", kind: "audio", size: 0, addedAt: Date.now() },
+  { id: "demo-1", name: "Your local library is ready", url: "", kind: "audio", size: 0, addedAt: 0 },
 ]
 
 function formatBytes(bytes: number) {
