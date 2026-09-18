@@ -6,7 +6,7 @@ import { listStoredMedia, saveStoredMedia, toMediaUrl } from "@/lib/media-db"
 type MediaItem = { id: string; name: string; url: string; kind: "audio" | "video"; size: number; addedAt: number }
 
 const starter: MediaItem[] = [
-  { id: "demo-1", name: "Your local library is ready", url: "", kind: "audio", size: 0, addedAt: Date.now() },
+  { id: "demo-1", name: "Your local library is ready", url: "", kind: "audio", size: 0, addedAt: 0 },
 ]
 
 function formatBytes(bytes: number) {
@@ -49,17 +49,42 @@ export default function Melodix() {
   }, [items])
 
   const notify = (message: string) => { setToast(message); window.setTimeout(() => setToast(""), 2200) }
-  const importFiles = (event: ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(event.target.files ?? []).filter((file) => file.type.startsWith("audio/") || file.type.startsWith("video/"))
+  const importSelectedFiles = (selected: File[]) => {
+    const files = selected.filter((file) => file.type.startsWith("audio/") || file.type.startsWith("video/"))
     const imported = files.map((file, index) => ({ id: `${file.name}-${file.lastModified}-${file.size}-${index}`, name: file.name.replace(/\.[^/.]+$/, ""), url: toMediaUrl(file), kind: file.type.startsWith("video/") ? "video" as const : "audio" as const, size: file.size, addedAt: Date.now() + index }))
     if (imported.length) {
       void saveStoredMedia(imported.map(({ url: _url, ...item }) => ({ ...item, type: files.find((file) => file.name.replace(/\.[^/.]+$/, "") === item.name)?.type ?? "application/octet-stream", blob: files.find((file) => file.name.replace(/\.[^/.]+$/, "") === item.name) ?? new Blob() }))).catch(() => notify("La sauvegarde locale a échoué"))
       setItems((current) => [...imported, ...current.filter((item) => item.url)])
       notify(`${imported.length} média${imported.length > 1 ? "s" : ""} importé${imported.length > 1 ? "s" : ""}`)
     }
-    event.target.value = ""
+  }
+  const importFiles = (event: ChangeEvent<HTMLInputElement>) => { importSelectedFiles(Array.from(event.target.files ?? [])); event.target.value = "" }
+  const importFolder = async () => {
+    if ("showDirectoryPicker" in window) {
+      try {
+        const handle = await (window as Window & { showDirectoryPicker: () => Promise<FileSystemDirectoryHandle> }).showDirectoryPicker()
+        const files: File[] = []
+        for await (const entry of handle.values()) if (entry.kind === "file") files.push(await entry.getFile())
+        importSelectedFiles(files)
+      } catch { notify("Sélection de dossier annulée") }
+    } else document.querySelector<HTMLInputElement>('input[data-folder-fallback]')?.click()
   }
   const play = (item: MediaItem) => { setActive(item); setPlaying(true); notify(`Lecture : ${item.name}`) }
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if ((event.target as HTMLElement).matches("input, textarea, select")) return
+      if (event.code === "Space" && active) { event.preventDefault(); setPlaying((value) => !value) }
+      if (event.key.toLowerCase() === "m") { const media = active?.kind === "video" ? videoRef.current : audioRef.current; if (media) media.muted = !media.muted }
+    }
+    window.addEventListener("keydown", onKeyDown)
+    return () => window.removeEventListener("keydown", onKeyDown)
+  }, [active])
+  useEffect(() => {
+    if (!active || !("mediaSession" in navigator)) return
+    navigator.mediaSession.metadata = new MediaMetadata({ title: active.name, artist: "Melodix", album: "Bibliothèque locale" })
+    navigator.mediaSession.setActionHandler("play", () => setPlaying(true))
+    navigator.mediaSession.setActionHandler("pause", () => setPlaying(false))
+  }, [active])
   const toggleFavorite = (item: MediaItem) => {
     const next = favorites.includes(item.id) ? favorites.filter((id) => id !== item.id) : [...favorites, item.id]
     setFavorites(next); localStorage.setItem("melodix-favorites", JSON.stringify(next)); notify(next.includes(item.id) ? "Ajouté aux favoris" : "Retiré des favoris")
@@ -76,7 +101,7 @@ export default function Melodix() {
     <aside className="sidebar">
       <div className="app-logo"><span className="logo-mark">M</span><span>melodix</span></div>
       <label className="import-button"><input type="file" accept="audio/*,video/*" multiple onChange={importFiles} />＋ Importer des fichiers</label>
-      <label className="import-button folder"><input type="file" accept="audio/*,video/*" multiple {...({ webkitdirectory: "" } as object)} onChange={importFiles} />▣ Importer un dossier</label>
+      <><button className="import-button folder" onClick={importFolder}>▣ Importer un dossier</button><input data-folder-fallback hidden type="file" accept="audio/*,video/*" multiple {...({ webkitdirectory: "" } as object)} onChange={importFiles} /></>
       <nav className="side-nav" aria-label="Navigation principale">
         {([["Accueil", "home"], ["Ma bibliothèque", "library"], ["Vidéos", "videos"], ["Favoris", "favorites"], ["Réglages", "settings"]] as [string, typeof section][]).map(([label, value]) => <button key={value} className={section === value ? "active" : ""} onClick={() => setSection(value)}>{label}</button>)}
       </nav>
