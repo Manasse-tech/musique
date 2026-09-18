@@ -2,8 +2,8 @@ import type { Metadata } from "next"
 import "./globals.css"
 
 export const metadata: Metadata = {
-  title: "Melodix — Log in",
-  description: "Sign in to your Melodix workspace.",
+  title: "Melodix — Music for every mood",
+  description: "Discover, stream, and organize your music and videos with Melodix.",
 }
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
